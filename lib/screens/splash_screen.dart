@@ -23,6 +23,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late Animation<double> _scaleAnimation;
   bool _isLoading = false;
   bool _continueOffline = false;
+  bool _authChecked = false;
 
   @override
   void initState() {
@@ -44,12 +45,18 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
     _controller.forward();
 
-    // If user is already logged in, automatically navigate after a short delay
+    // Listen to Firebase Auth state — fires once token is restored from cache.
+    // This correctly handles force-close + reopen where currentUser is null
+    // synchronously but becomes non-null once Firebase SDK restores the session.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final currentUser = ref.read(authServiceProvider).currentUser;
-      if (currentUser != null) {
-        _navigateToNext();
-      }
+      ref.read(authServiceProvider).authStateChanges.first.then((user) {
+        if (!mounted || _authChecked) return;
+        _authChecked = true;
+        if (user != null) {
+          _navigateToNext();
+        }
+        // If user is null, the splash screen will show login options (handled by build)
+      });
     });
   }
 
