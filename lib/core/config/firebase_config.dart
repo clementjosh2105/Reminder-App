@@ -13,10 +13,7 @@ class FirebaseConfig {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'FirebaseOptions have not been configured for iOS. '
-          'Run FlutterFire CLI or add real iOS options before building iOS.',
-        );
+        return ios;
       default:
         throw UnsupportedError(
           'FirebaseOptions are not supported for this platform.',
@@ -30,6 +27,15 @@ class FirebaseConfig {
     messagingSenderId: '881110997358',
     projectId: 'momentum-501101',
     storageBucket: 'momentum-501101.firebasestorage.app',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyBW-mjGUM_TLHmmcYSJ5PzOad6Vt7hN3s4',
+    appId: '1:881110997358:ios:4554bbe6ca84c0d753097f', // NOTE: Replace this placeholder hash with your actual Firebase iOS App ID
+    messagingSenderId: '881110997358',
+    projectId: 'momentum-501101',
+    storageBucket: 'momentum-501101.firebasestorage.app',
+    iosBundleId: 'com.antigravity.momentum.momentum',
   );
 
   static const FirebaseOptions web = FirebaseOptions(
