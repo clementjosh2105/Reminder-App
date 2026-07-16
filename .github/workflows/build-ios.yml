@@ -32,6 +32,20 @@ jobs:
       - name: Disable Swift Package Manager (Force CocoaPods)
         run: flutter config --no-enable-swift-package-manager
 
+      - name: Configure iOS Deployment Target in Podfile
+        run: |
+          python3 -c "
+          import os, re
+          podfile_path = 'ios/Podfile'
+          if os.path.exists(podfile_path):
+              content = open(podfile_path).read()
+              content = re.sub(r'#?\s*platform\s*:ios,\s*[\'\"]\d+(\.\d+)?[\'\"]', \"platform :ios, '13.0'\", content)
+              open(podfile_path, 'w').write(content)
+              print('Podfile updated to iOS 13.0 successfully!')
+          else:
+              print('Podfile not found!')
+          "
+
       - name: Build iOS App Bundle (Unsigned)
         run: flutter build ios --release --no-codesign
 
