@@ -44,20 +44,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack));
 
     _controller.forward();
-
-    // Listen to Firebase Auth state — fires once token is restored from cache.
-    // This correctly handles force-close + reopen where currentUser is null
-    // synchronously but becomes non-null once Firebase SDK restores the session.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(authServiceProvider).authStateChanges.first.then((user) {
-        if (!mounted || _authChecked) return;
-        _authChecked = true;
-        if (user != null) {
-          _navigateToNext();
-        }
-        // If user is null, the splash screen will show login options (handled by build)
-      });
-    });
   }
 
   Future<void> _navigateToNext({bool immediate = false}) async {
@@ -132,8 +118,20 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = ref.watch(authServiceProvider).currentUser;
-    final bool showLogin = currentUser == null && !_continueOffline;
+    ref.listen<AsyncValue<User?>>(authStateProvider, (previous, next) {
+      next.whenOrNull(
+        data: (user) {
+          if (user != null && !_authChecked) {
+            _authChecked = true;
+            _navigateToNext();
+          }
+        },
+      );
+    });
+
+    final authState = ref.watch(authStateProvider);
+    final currentUser = authState.valueOrNull;
+    final bool showLogin = currentUser == null && !authState.isLoading && !_continueOffline;
 
     Widget logoBranding = Column(
       mainAxisSize: MainAxisSize.min,
