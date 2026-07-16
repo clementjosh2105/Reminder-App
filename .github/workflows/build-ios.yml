@@ -39,11 +39,18 @@ jobs:
           podfile_path = 'ios/Podfile'
           if os.path.exists(podfile_path):
               content = open(podfile_path).read()
-              content = re.sub(r'#?\s*platform\s*:ios,\s*[\'\"]\d+(\.\d+)?[\'\"]', \"platform :ios, '13.0'\", content)
+              content = re.sub(r'#?\s*platform\s*:ios,\s*[\'\"]\d+(\.\d+)?[\'\"]', \"platform :ios, '15.0'\", content)
               open(podfile_path, 'w').write(content)
-              print('Podfile updated to iOS 13.0 successfully!')
-          else:
-              print('Podfile not found!')
+              print('Podfile updated to iOS 15.0 successfully!')
+          
+          pbx_path = 'ios/Runner.xcodeproj/project.pbxproj'
+          if os.path.exists(pbx_path):
+              content = open(pbx_path).read()
+              content = content.replace('IPHONEOS_DEPLOYMENT_TARGET = 13.0;', 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;')
+              content = content.replace('IPHONEOS_DEPLOYMENT_TARGET = 12.0;', 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;')
+              content = content.replace('IPHONEOS_DEPLOYMENT_TARGET = 11.0;', 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;')
+              open(pbx_path, 'w').write(content)
+              print('Xcode project.pbxproj updated to iOS 15.0 successfully!')
           "
 
       - name: Build iOS App Bundle (Unsigned)
