@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "881110997358",
+    "project_id": "momentum-501101",
+    "storage_bucket": "momentum-501101.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:881110997358:android:4554bbe6ca84c0d753097f",
+        "android_client_info": {
+          "package_name": "com.antigravity.momentum.momentum"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBW-mjGUM_TLHmmcYSJ5PzOad6Vt7hN3s4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

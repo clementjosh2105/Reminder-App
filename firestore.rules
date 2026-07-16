@@ -1,0 +1,737 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users_private
+    // Document ID: Firebase Auth uid
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth uid.
+    //   - email: string (required, owner-only PII) - user's email.
+    //   - displayName: string (required, <= 40 chars) - private copy.
+    //   - photoUrl: string (optional, <= 500 chars) - private copy.
+    //   - lastSeenAt: timestamp (required) - last profile sync.
+    //
+    // Collection: leaderboards/{weekKey}/entries
+    // Document ID: Firebase Auth uid
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth uid.
+    //   - displayName: string (required, <= 40 chars) - public leaderboard name.
+    //   - photoUrl: string (optional, <= 500 chars) - public avatar URL.
+    //   - score: number (required, 0..2000) - public weekly score.
+    //   - weeklyCompletions: number (required, 0..500) - public weekly completions.
+    //   - completedToday: number (required, 0..100) - public daily completions.
+    //   - currentStreak: number (required, 0..1000) - public current streak.
+    //   - weekKey: string (required, immutable) - YYYY-MM-DD week bucket.
+    //   - updatedAt: timestamp (required) - score sync time.
+    //
+    // Collection: users_public
+    // Document ID: Firebase Auth uid
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth uid.
+    //   - displayName: string (required, <= 40 chars) - public profile name.
+    //   - photoUrl: string (optional, <= 500 chars) - public avatar URL.
+    //   - shareActivityWithFriends: bool (required) - activity feed preference.
+    //   - socialNotifications: bool (required) - social push preference.
+    //   - friendRequestMode: string (required) - everyone or no_one.
+    //   - updatedAt: timestamp (required) - profile sync time.
+    //
+    // Collection: user_email_lookup
+    // Document ID: SHA-256 hash of lowercase email
+    // Fields:
+    //   - uid: string (required, immutable) - Firebase Auth uid for this email hash.
+    //   - displayName: string (required, <= 40 chars) - public profile name.
+    //   - photoUrl: string (optional, <= 500 chars) - public avatar URL.
+    //   - emailHash: string (required, immutable) - duplicate of document ID.
+    //   - updatedAt: timestamp (required) - profile sync time.
+    //
+    // Collection: friendships
+    // Document ID: deterministic client pair ID
+    // Fields:
+    //   - participantUids: list<string> (required, size 2, immutable) - two user UIDs.
+    //   - requesterUid: string (required, immutable) - sender UID.
+    //   - recipientUid: string (required, immutable) - recipient UID.
+    //   - requesterName/requesterPhotoUrl: string (required, immutable) - public sender identity.
+    //   - recipientName/recipientPhotoUrl: string (required, immutable) - public recipient identity.
+    //   - status: string (required) - pending, accepted, declined, blocked, or removed.
+    //   - unreadBy: list<string> (optional, size <= 2) - participants with unread messages.
+    //   - hiddenFor: list<string> (optional, size <= 2) - participants hiding the thread.
+    //   - createdAt: timestamp (required, immutable) - request time.
+    //   - updatedAt: timestamp (required) - last state change.
+    //
+    // Collection: friendships/{friendshipId}/messages
+    // Document ID: auto ID
+    // Fields:
+    //   - senderUid: string (required, immutable) - author UID.
+    //   - text: string (required, 1..500 chars) - message body.
+    //   - sentAt: timestamp (required, immutable) - send time.
+    //
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() <= 254 &&
+        email.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$");
+    }
+
+    function isValidOptionalUrl(url) {
+      return url is string &&
+        url.size() <= 500 &&
+        (url == "" || url.matches("^https://.*"));
+    }
+
+    function isValidDisplayName(name) {
+      return name is string && name.size() >= 1 && name.size() <= 40;
+    }
+
+    function isValidWeekKey(weekKey) {
+      return weekKey is string && weekKey.matches("^\\d{4}-\\d{2}-\\d{2}$");
+    }
+
+    function isValidInviteCode(code) {
+      return code is string && code.matches("^[A-Z2-9]{6}$");
+    }
+
+    function isValidUid(uid) {
+      return uid is string && uid.size() >= 1 && uid.size() <= 128;
+    }
+
+    function isValidEmailHash(hash) {
+      return hash is string && hash.matches("^[a-f0-9]{64}$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isRecentTimestamp(value) {
+      return value is timestamp &&
+        value > request.time - duration.value(5, 'm') &&
+        value <= request.time;
+    }
+
+    function isValidPrivateUser(userId) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'email',
+          'displayName',
+          'photoUrl',
+          'lastSeenAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'uid',
+          'email',
+          'displayName',
+          'photoUrl',
+          'lastSeenAt'
+        ]) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        isValidEmail(request.resource.data.email) &&
+        isValidDisplayName(request.resource.data.displayName) &&
+        isValidOptionalUrl(request.resource.data.photoUrl) &&
+        isRecentTimestamp(request.resource.data.lastSeenAt);
+    }
+
+    function privateUidUnchanged() {
+      return request.resource.data.uid == resource.data.uid;
+    }
+
+    function isValidLeaderboardEntry(weekKey, userId) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'score',
+          'weeklyCompletions',
+          'completedToday',
+          'currentStreak',
+          'weekKey',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'score',
+          'weeklyCompletions',
+          'completedToday',
+          'currentStreak',
+          'weekKey',
+          'updatedAt'
+        ]) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.weekKey == weekKey &&
+        isValidWeekKey(weekKey) &&
+        isValidDisplayName(request.resource.data.displayName) &&
+        isValidOptionalUrl(request.resource.data.photoUrl) &&
+        request.resource.data.score is number &&
+        request.resource.data.score >= 0 &&
+        request.resource.data.score <= 2000 &&
+        request.resource.data.weeklyCompletions is number &&
+        request.resource.data.weeklyCompletions >= 0 &&
+        request.resource.data.weeklyCompletions <= 500 &&
+        request.resource.data.completedToday is number &&
+        request.resource.data.completedToday >= 0 &&
+        request.resource.data.completedToday <= 100 &&
+        request.resource.data.currentStreak is number &&
+        request.resource.data.currentStreak >= 0 &&
+        request.resource.data.currentStreak <= 1000 &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    function leaderboardImmutableFieldsUnchanged() {
+      return request.resource.data.uid == resource.data.uid &&
+        request.resource.data.weekKey == resource.data.weekKey;
+    }
+
+    function isValidGroup(groupId) {
+      return hasOnlyAllowedFields([
+          'name',
+          'code',
+          'ownerUid',
+          'ownerName',
+          'memberUids',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'name',
+          'code',
+          'ownerUid',
+          'ownerName',
+          'memberUids',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() >= 1 &&
+        request.resource.data.name.size() <= 40 &&
+        request.resource.data.code == groupId &&
+        isValidInviteCode(request.resource.data.code) &&
+        request.resource.data.ownerUid is string &&
+        request.resource.data.ownerUid.size() > 0 &&
+        isValidDisplayName(request.resource.data.ownerName) &&
+        request.resource.data.memberUids is list &&
+        request.resource.data.memberUids.size() >= 1 &&
+        request.resource.data.memberUids.size() <= 50 &&
+        request.resource.data.createdAt is timestamp &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    function groupImmutableFieldsUnchanged() {
+      return request.resource.data.code == resource.data.code &&
+        request.resource.data.ownerUid == resource.data.ownerUid &&
+        request.resource.data.ownerName == resource.data.ownerName &&
+        request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function isJoiningGroup() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['memberUids', 'updatedAt']) &&
+        request.resource.data.memberUids.hasAll(resource.data.memberUids) &&
+        request.auth.uid in request.resource.data.memberUids &&
+        request.resource.data.memberUids.size() <=
+          resource.data.memberUids.size() + 1;
+    }
+
+    function isValidPublicUser(userId) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'shareActivityWithFriends',
+          'socialNotifications',
+          'friendRequestMode',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'shareActivityWithFriends',
+          'socialNotifications',
+          'friendRequestMode',
+          'updatedAt'
+        ]) &&
+        request.resource.data.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        isValidDisplayName(request.resource.data.displayName) &&
+        isValidOptionalUrl(request.resource.data.photoUrl) &&
+        request.resource.data.shareActivityWithFriends is bool &&
+        request.resource.data.socialNotifications is bool &&
+        request.resource.data.friendRequestMode in ['everyone', 'no_one'] &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    function isValidEmailLookup(emailHash) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'emailHash',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'uid',
+          'displayName',
+          'photoUrl',
+          'emailHash',
+          'updatedAt'
+        ]) &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.emailHash == emailHash &&
+        isValidEmailHash(emailHash) &&
+        isValidDisplayName(request.resource.data.displayName) &&
+        isValidOptionalUrl(request.resource.data.photoUrl) &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    function emailLookupUidUnchanged() {
+      return request.resource.data.uid == resource.data.uid &&
+        request.resource.data.emailHash == resource.data.emailHash;
+    }
+
+    function isValidFriendship() {
+      return hasOnlyAllowedFields([
+          'participantUids',
+          'requesterUid',
+          'recipientUid',
+          'requesterName',
+          'requesterPhotoUrl',
+          'recipientName',
+          'recipientPhotoUrl',
+          'status',
+          'unreadBy',
+          'hiddenFor',
+          'lastMessageText',
+          'lastMessageAt',
+          'lastMessageSenderUid',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'participantUids',
+          'requesterUid',
+          'recipientUid',
+          'requesterName',
+          'requesterPhotoUrl',
+          'recipientName',
+          'recipientPhotoUrl',
+          'status',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.participantUids is list &&
+        request.resource.data.participantUids.size() == 2 &&
+        request.resource.data.requesterUid in request.resource.data.participantUids &&
+        request.resource.data.recipientUid in request.resource.data.participantUids &&
+        request.resource.data.requesterUid != request.resource.data.recipientUid &&
+        isValidUid(request.resource.data.requesterUid) &&
+        isValidUid(request.resource.data.recipientUid) &&
+        isValidDisplayName(request.resource.data.requesterName) &&
+        isValidDisplayName(request.resource.data.recipientName) &&
+        isValidOptionalUrl(request.resource.data.requesterPhotoUrl) &&
+        isValidOptionalUrl(request.resource.data.recipientPhotoUrl) &&
+        request.resource.data.status in ['pending', 'accepted', 'declined', 'blocked', 'removed'] &&
+        (!('unreadBy' in request.resource.data) ||
+          (request.resource.data.unreadBy is list &&
+            request.resource.data.unreadBy.size() <= 2)) &&
+        (!('hiddenFor' in request.resource.data) ||
+          (request.resource.data.hiddenFor is list &&
+            request.resource.data.hiddenFor.size() <= 2)) &&
+        (!('lastMessageText' in request.resource.data) ||
+          (request.resource.data.lastMessageText is string &&
+            request.resource.data.lastMessageText.size() <= 500)) &&
+        (!('lastMessageSenderUid' in request.resource.data) ||
+          isValidUid(request.resource.data.lastMessageSenderUid)) &&
+        (!('lastMessageAt' in request.resource.data) ||
+          request.resource.data.lastMessageAt is timestamp) &&
+        request.resource.data.createdAt is timestamp &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    function friendshipImmutableFieldsUnchanged() {
+      return request.resource.data.participantUids == resource.data.participantUids &&
+        request.resource.data.requesterUid == resource.data.requesterUid &&
+        request.resource.data.recipientUid == resource.data.recipientUid &&
+        request.resource.data.requesterName == resource.data.requesterName &&
+        request.resource.data.requesterPhotoUrl == resource.data.requesterPhotoUrl &&
+        request.resource.data.recipientName == resource.data.recipientName &&
+        request.resource.data.recipientPhotoUrl == resource.data.recipientPhotoUrl &&
+        request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function canMarkFriendshipRead() {
+      return isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['unreadBy', 'updatedAt']) &&
+        friendshipImmutableFieldsUnchanged() &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.hiddenFor == resource.data.hiddenFor &&
+        request.resource.data.unreadBy is list &&
+        !(request.auth.uid in request.resource.data.unreadBy) &&
+        isValidFriendship();
+    }
+
+    function canHideFriendship() {
+      return isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['hiddenFor', 'updatedAt']) &&
+        friendshipImmutableFieldsUnchanged() &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.unreadBy == resource.data.unreadBy &&
+        request.auth.uid in request.resource.data.hiddenFor &&
+        isValidFriendship();
+    }
+
+    function canBlockFriendship() {
+      return isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'hiddenFor', 'updatedAt']) &&
+        request.resource.data.status == 'blocked' &&
+        request.auth.uid in request.resource.data.hiddenFor &&
+        friendshipImmutableFieldsUnchanged() &&
+        isValidFriendship();
+    }
+
+    function canRemoveFriendship() {
+      return isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'unreadBy', 'hiddenFor', 'updatedAt']) &&
+        request.resource.data.status == 'removed' &&
+        request.resource.data.unreadBy is list &&
+        request.resource.data.unreadBy.size() == 0 &&
+        request.resource.data.hiddenFor == resource.data.participantUids &&
+        friendshipImmutableFieldsUnchanged() &&
+        isValidFriendship();
+    }
+
+    function canReadFriendship() {
+      return isAuthenticated() && request.auth.uid in resource.data.participantUids;
+    }
+
+    function canCreateFriendship() {
+      return isAuthenticated() &&
+        request.resource.data.requesterUid == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.auth.uid in request.resource.data.participantUids &&
+        exists(/databases/$(database)/documents/users_public/$(request.resource.data.recipientUid)) &&
+        get(/databases/$(database)/documents/users_public/$(request.resource.data.recipientUid)).data.friendRequestMode != 'no_one' &&
+        isValidFriendship();
+    }
+
+    function canRespondToFriendship() {
+      return isAuthenticated() &&
+        request.auth.uid == resource.data.recipientUid &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status in ['accepted', 'declined'] &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedAt']) &&
+        friendshipImmutableFieldsUnchanged() &&
+        isValidFriendship();
+    }
+
+    function friendshipPath(friendshipId) {
+      return /databases/$(database)/documents/friendships/$(friendshipId);
+    }
+
+    function canAccessMessages(friendshipId) {
+      return isAuthenticated() &&
+        exists(friendshipPath(friendshipId)) &&
+        request.auth.uid in get(friendshipPath(friendshipId)).data.participantUids &&
+        get(friendshipPath(friendshipId)).data.status == 'accepted';
+    }
+
+    function isValidMessage(friendshipId) {
+      return hasOnlyAllowedFields([
+          'senderUid',
+          'text',
+          'sentAt',
+          'readBy'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'senderUid',
+          'text',
+          'sentAt',
+          'readBy'
+        ]) &&
+        request.resource.data.senderUid == request.auth.uid &&
+        request.resource.data.text is string &&
+        request.resource.data.text.size() >= 1 &&
+        request.resource.data.text.size() <= 500 &&
+        request.resource.data.readBy is list &&
+        request.resource.data.readBy.size() == 1 &&
+        request.resource.data.readBy[0] == request.auth.uid &&
+        isRecentTimestamp(request.resource.data.sentAt) &&
+        canAccessMessages(friendshipId);
+    }
+
+    function canMarkMessageRead(friendshipId) {
+      return canAccessMessages(friendshipId) &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['readBy']) &&
+        request.resource.data.senderUid == resource.data.senderUid &&
+        request.resource.data.text == resource.data.text &&
+        request.resource.data.sentAt == resource.data.sentAt &&
+        resource.data.readBy is list &&
+        request.resource.data.readBy is list &&
+        request.resource.data.readBy.size() <= 2 &&
+        request.resource.data.readBy.hasAll(resource.data.readBy) &&
+        request.auth.uid in request.resource.data.readBy;
+    }
+
+    function isValidDeviceToken(tokenId) {
+      return hasOnlyAllowedFields([
+          'token',
+          'uid',
+          'socialNotifications',
+          'lastUpdated',
+          'platform'
+        ]) &&
+        request.resource.data.keys().hasAll([
+          'token',
+          'uid',
+          'socialNotifications',
+          'lastUpdated'
+        ]) &&
+        request.resource.data.token == tokenId &&
+        request.resource.data.token is string &&
+        request.resource.data.token.size() <= 4096 &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.socialNotifications is bool &&
+        (!('platform' in request.resource.data) ||
+          (request.resource.data.platform is string &&
+            request.resource.data.platform.size() <= 40)) &&
+        isRecentTimestamp(request.resource.data.lastUpdated);
+    }
+
+    function isValidActivity() {
+      return hasOnlyAllowedFields([
+          'actorUid',
+          'actorName',
+          'actorPhotoUrl',
+          'type',
+          'title',
+          'streak',
+          'visibleToUids',
+          'createdAt'
+        ]) &&
+        request.resource.data.actorUid == request.auth.uid &&
+        isValidDisplayName(request.resource.data.actorName) &&
+        isValidOptionalUrl(request.resource.data.actorPhotoUrl) &&
+        request.resource.data.type in ['habit_completed'] &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 1 &&
+        request.resource.data.title.size() <= 80 &&
+        request.resource.data.streak is number &&
+        request.resource.data.streak >= 0 &&
+        request.resource.data.streak <= 1000 &&
+        request.resource.data.visibleToUids is list &&
+        request.resource.data.visibleToUids.size() <= 50 &&
+        isRecentTimestamp(request.resource.data.createdAt);
+    }
+
+    function isValidBlock() {
+      return hasOnlyAllowedFields([
+          'ownerUid',
+          'blockedUid',
+          'friendshipId',
+          'createdAt'
+        ]) &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        isValidUid(request.resource.data.blockedUid) &&
+        request.resource.data.blockedUid != request.auth.uid &&
+        request.resource.data.friendshipId is string &&
+        request.resource.data.friendshipId.size() <= 260 &&
+        isRecentTimestamp(request.resource.data.createdAt);
+    }
+
+    function isValidReport() {
+      return hasOnlyAllowedFields([
+          'reporterUid',
+          'reportedUid',
+          'friendshipId',
+          'reason',
+          'status',
+          'createdAt'
+        ]) &&
+        request.resource.data.reporterUid == request.auth.uid &&
+        isValidUid(request.resource.data.reportedUid) &&
+        request.resource.data.reportedUid != request.auth.uid &&
+        request.resource.data.friendshipId is string &&
+        request.resource.data.friendshipId.size() <= 260 &&
+        request.resource.data.reason is string &&
+        request.resource.data.reason.size() >= 1 &&
+        request.resource.data.reason.size() <= 500 &&
+        request.resource.data.status == 'open' &&
+        isRecentTimestamp(request.resource.data.createdAt);
+    }
+
+    function isValidChallenge() {
+      return hasOnlyAllowedFields([
+          'participantUids',
+          'creatorUid',
+          'recipientUid',
+          'title',
+          'durationDays',
+          'status',
+          'completedUids',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        request.resource.data.participantUids is list &&
+        request.resource.data.participantUids.size() == 2 &&
+        request.resource.data.creatorUid in request.resource.data.participantUids &&
+        request.resource.data.recipientUid in request.resource.data.participantUids &&
+        request.resource.data.creatorUid != request.resource.data.recipientUid &&
+        request.resource.data.title is string &&
+        request.resource.data.title.size() >= 1 &&
+        request.resource.data.title.size() <= 60 &&
+        request.resource.data.durationDays in [3, 7, 14] &&
+        request.resource.data.status in ['pending', 'active', 'declined'] &&
+        request.resource.data.completedUids is list &&
+        request.resource.data.completedUids.size() <= 2 &&
+        request.resource.data.createdAt is timestamp &&
+        isRecentTimestamp(request.resource.data.updatedAt);
+    }
+
+    match /users_private/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidPrivateUser(userId);
+      allow update: if isOwner(userId) &&
+        privateUidUnchanged() &&
+        isValidPrivateUser(userId);
+      allow delete: if false;
+    }
+
+    match /leaderboards/{weekKey}/entries/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidLeaderboardEntry(weekKey, userId);
+      allow update: if isOwner(userId) &&
+        leaderboardImmutableFieldsUnchanged() &&
+        isValidLeaderboardEntry(weekKey, userId);
+      allow delete: if false;
+    }
+
+    match /users_public/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidPublicUser(userId);
+      allow update: if isOwner(userId) &&
+        request.resource.data.uid == resource.data.uid &&
+        isValidPublicUser(userId);
+      allow delete: if false;
+    }
+
+    match /user_email_lookup/{emailHash} {
+      allow read: if isAuthenticated() && isValidEmailHash(emailHash);
+      allow create: if isAuthenticated() && isValidEmailLookup(emailHash);
+      allow update: if isAuthenticated() &&
+        resource.data.uid == request.auth.uid &&
+        emailLookupUidUnchanged() &&
+        isValidEmailLookup(emailHash);
+      allow delete: if false;
+    }
+
+    match /friendships/{friendshipId} {
+      allow read: if canReadFriendship();
+      allow create: if canCreateFriendship();
+      allow update: if canRespondToFriendship() ||
+        canMarkFriendshipRead() ||
+        canHideFriendship() ||
+        canBlockFriendship() ||
+        canRemoveFriendship();
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if canAccessMessages(friendshipId);
+        allow create: if isValidMessage(friendshipId);
+        allow update: if canMarkMessageRead(friendshipId);
+        allow delete: if false;
+      }
+    }
+
+    match /device_tokens/{tokenId} {
+      allow read: if false;
+      allow create: if isAuthenticated() && isValidDeviceToken(tokenId);
+      allow update: if isAuthenticated() &&
+        resource.data.uid == request.auth.uid &&
+        isValidDeviceToken(tokenId);
+      allow delete: if false;
+    }
+
+    match /activities/{activityId} {
+      allow read: if isAuthenticated() &&
+        request.auth.uid in resource.data.visibleToUids;
+      allow create: if isAuthenticated() && isValidActivity();
+      allow update, delete: if false;
+    }
+
+    match /blocks/{blockId} {
+      allow read: if isAuthenticated() &&
+        resource.data.ownerUid == request.auth.uid;
+      allow create: if isAuthenticated() && isValidBlock();
+      allow update, delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read: if false;
+      allow create: if isAuthenticated() && isValidReport();
+      allow update, delete: if false;
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids;
+      allow create: if isAuthenticated() &&
+        request.resource.data.creatorUid == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        isValidChallenge();
+      allow update: if isAuthenticated() &&
+        request.auth.uid in resource.data.participantUids &&
+        request.resource.data.participantUids == resource.data.participantUids &&
+        request.resource.data.creatorUid == resource.data.creatorUid &&
+        request.resource.data.recipientUid == resource.data.recipientUid &&
+        request.resource.data.title == resource.data.title &&
+        request.resource.data.durationDays == resource.data.durationDays &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'completedUids', 'updatedAt']) &&
+        isValidChallenge();
+      allow delete: if false;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        request.resource.data.memberUids.size() == 1 &&
+        request.resource.data.memberUids[0] == request.auth.uid &&
+        isValidGroup(groupId);
+      allow update: if isAuthenticated() &&
+        groupImmutableFieldsUnchanged() &&
+        isValidGroup(groupId) &&
+        isJoiningGroup();
+      allow delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
