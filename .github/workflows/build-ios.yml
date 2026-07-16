@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Generate Launcher Icons
+        run: flutter pub run flutter_launcher_icons
+
       - name: Disable Swift Package Manager (Force CocoaPods)
         run: flutter config --no-enable-swift-package-manager
 
