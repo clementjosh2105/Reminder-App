@@ -30,8 +30,8 @@ class FirebaseConfig {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyBW-mjGUM_TLHmmcYSJ5PzOad6Vt7hN3s4',
-    appId: '1:881110997358:ios:4554bbe6ca84c0d753097f', // NOTE: Replace this placeholder hash with your actual Firebase iOS App ID
+    apiKey: 'AIzaSyB35qZ5rgkjRQhOej8K7fNIgg56DIOqhws',
+    appId: '1:881110997358:ios:74423ec871d01dda53097f',
     messagingSenderId: '881110997358',
     projectId: 'momentum-501101',
     storageBucket: 'momentum-501101.firebasestorage.app',
