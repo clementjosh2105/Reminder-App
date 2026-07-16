@@ -42,12 +42,12 @@ dependencies:
   uuid: ^4.3.3
   intl: ^0.18.1
   shared_preferences: ^2.2.2
-  firebase_core: ^2.13.0
-  firebase_messaging: ^14.5.0
-  cloud_firestore: ^4.7.0
+  firebase_core: ^2.32.0
+  firebase_messaging: ^14.9.4
+  cloud_firestore: ^4.17.5
   http: ^1.2.1
-  firebase_auth: ^4.16.0
-  google_sign_in: ^7.2.0
+  firebase_auth: ^4.20.0
+  google_sign_in: ^6.2.1
   crypto: ^3.0.7
 
 dev_dependencies:
