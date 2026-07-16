@@ -23,7 +23,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   bool _isLoading = false;
-  bool _continueOffline = false;
   bool _authChecked = false;
 
   @override
@@ -122,17 +121,29 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     ref.listen<AsyncValue<User?>>(authStateProvider, (previous, next) {
       next.whenOrNull(
         data: (user) {
-          if (user != null && !_authChecked) {
-            _authChecked = true;
-            _navigateToNext();
+          if (user != null) {
+            ref.read(settingsProvider.notifier).setOfflineMode(false);
+            if (!_authChecked) {
+              _authChecked = true;
+              _navigateToNext();
+            }
           }
         },
       );
     });
 
+    final settings = ref.watch(settingsProvider);
     final authState = ref.watch(authStateProvider);
     final currentUser = authState.valueOrNull;
-    final bool showLogin = currentUser == null && !authState.isLoading && !_continueOffline;
+
+    if (settings.offlineMode && !_authChecked) {
+      _authChecked = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _navigateToNext(immediate: true);
+      });
+    }
+
+    final bool showLogin = currentUser == null && !authState.isLoading && !settings.offlineMode;
 
     Widget logoBranding = Column(
       mainAxisSize: MainAxisSize.min,
@@ -245,10 +256,8 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: () {
-              setState(() {
-                _continueOffline = true;
-              });
+            onTap: () async {
+              await ref.read(settingsProvider.notifier).setOfflineMode(true);
               _navigateToNext(immediate: true);
             },
             child: const Text(

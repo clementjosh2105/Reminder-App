@@ -12,6 +12,7 @@ class SettingsState {
   final bool shareActivityWithFriends;
   final bool socialNotifications;
   final String friendRequestMode;
+  final bool offlineMode;
 
   SettingsState({
     required this.themeMode,
@@ -23,6 +24,7 @@ class SettingsState {
     required this.shareActivityWithFriends,
     required this.socialNotifications,
     required this.friendRequestMode,
+    required this.offlineMode,
   });
 
   SettingsState copyWith({
@@ -35,6 +37,7 @@ class SettingsState {
     bool? shareActivityWithFriends,
     bool? socialNotifications,
     String? friendRequestMode,
+    bool? offlineMode,
   }) {
     return SettingsState(
       themeMode: themeMode ?? this.themeMode,
@@ -48,6 +51,7 @@ class SettingsState {
           shareActivityWithFriends ?? this.shareActivityWithFriends,
       socialNotifications: socialNotifications ?? this.socialNotifications,
       friendRequestMode: friendRequestMode ?? this.friendRequestMode,
+      offlineMode: offlineMode ?? this.offlineMode,
     );
   }
 }
@@ -68,6 +72,7 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
               .getShareActivityWithFriends(),
           socialNotifications: _storageService.getSocialNotifications(),
           friendRequestMode: _storageService.getFriendRequestMode(),
+          offlineMode: _storageService.isOfflineMode(),
         ),
       );
 
@@ -114,6 +119,11 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
   Future<void> setFriendRequestMode(String mode) async {
     await _storageService.setFriendRequestMode(mode);
     state = state.copyWith(friendRequestMode: mode);
+  }
+
+  Future<void> setOfflineMode(bool enabled) async {
+    await _storageService.setOfflineMode(enabled);
+    state = state.copyWith(offlineMode: enabled);
   }
 }
 

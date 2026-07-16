@@ -193,6 +193,7 @@ class SettingsScreen extends ConsumerWidget {
                       leading: const Icon(Icons.logout_rounded),
                       title: const Text("Sign out"),
                       onTap: () async {
+                        await ref.read(settingsProvider.notifier).setOfflineMode(false);
                         await ref.read(authServiceProvider).signOut();
                       },
                     ),

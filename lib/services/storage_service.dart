@@ -189,4 +189,14 @@ class StorageService {
     final ms = _settingsBox.get('interval_done_at_$habitId') as int?;
     return ms != null ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
   }
+
+  // --- OFFLINE MODE PERSISTENCE ---
+
+  bool isOfflineMode() {
+    return _settingsBox.get('offline_mode', defaultValue: false) as bool;
+  }
+
+  Future<void> setOfflineMode(bool enabled) async {
+    await _settingsBox.put('offline_mode', enabled);
+  }
 }
